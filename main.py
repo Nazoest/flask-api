@@ -5,17 +5,27 @@
 #4. You have to define a status code for the app receiving the data to know how to handle the data e.g 200,404,403
 
 from datetime import timedelta
+import sentry_sdk
 from flask import Flask,jsonify,request
 from models import db,Product,User,Sales,Purchases
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required
 from flask_cors import CORS
+from sqlalchemy import func
 
 app=Flask(__name__)
 #to be complete with sql alchemy
 # Initialize SQLAlchemy
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Nazo@localhost:5432/flaskapi'
 db.init_app(app)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+
+sentry_sdk.init(
+    dsn="https://3d379e252f3d7eb6dee9c1425c108aef@o4510538828349440.ingest.us.sentry.io/4510538986815488",
+    # Add data like request headers and IP for users,
+    # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
+    send_default_pii=True,
+)
 
 jwt=JWTManager(app)
 app.config['JWT_ACCESS_TOKEN_EXPIRES']=timedelta(minutes=30)
@@ -57,7 +67,16 @@ def login():
             token = create_access_token(identity = data["email"])
             return jsonify({"token": token}), 200 
 
-
+@app.route("/forgot-password", methods=["POST"])
+def forgot_password():
+    data = request.get_json()
+    usr = User.query.filter_by(email=data["email"]).first() 
+    if usr is None:
+            error = {"error": "Email not found"}
+            return jsonify(error), 404
+    else:
+            # In a real application, you would send an email with a reset link here
+            return jsonify({"message": "Password reset link has been sent to your email"}), 200
 
 @app.route("/products",methods=["GET","POST"])
 @jwt_required()
@@ -81,6 +100,10 @@ def products():
             buying_price=data["buying_price"],
             selling_price=data["selling_price"]
         )
+        if Product.query.filter_by(name=data["name"]).first():
+            error={"error":"Product with that name already exists"}
+            return jsonify(error),409
+        
         db.session.add(new_product)
         db.session.commit()
         data["id"]=new_product.id
@@ -151,7 +174,26 @@ def purchases():
     else:
         error = {"message": "Method not allowed"}
         return jsonify(error), 405
-
+@app.route("/dashboard", methods=["GET"])
+@jwt_required()
+def dashboard():
+    if request.method=="GET":
+        remaining_stock_query = db.session.query(
+            Product.id,
+            Product.name,
+            (func.coalesce(func.sum(Purchases.stock_quantity), 0) - func.coalesce(func.sum(Sales.quantity), 0)).label('remaining_stock')
+        ).outerjoin(Purchases, Product.id==Purchases.product_id).outerjoin(Sales, Product.id==Sales.product_id).group_by(Product.id, Product.name)
+        
+        result = remaining_stock_query.all()
+        data = []
+        labels = []
+        for r in result:
+            data.append(r.remaining_stock)
+            labels.append(r.name)
+        return jsonify({"data": data, "labels": labels}), 200
+    else:
+        error = {"message": "Method not allowed"}
+        return jsonify(error), 405
 
 
 if __name__=="__main__":
