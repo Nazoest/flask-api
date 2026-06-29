@@ -79,6 +79,7 @@ def forgot_password():
             return jsonify(error), 404
     else:
             # In a real application, you would send an email with a reset link here
+            
             return jsonify({"message": "Password reset link has been sent to your email"}), 200
 
 @app.route("/products",methods=["GET","POST"])
