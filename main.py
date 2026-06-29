@@ -39,9 +39,12 @@ myusers=[]
 def home():
     return({"Flask API" : "1.0"}),200
 
-@app.route("/api/register",methods=["POST"])
+@app.route("/register",methods=["POST"])
 def register():
     data=request.get_json()
+    if not data or "username" not in data or "email" not in data or "password" not in data:
+        return jsonify({"error": "Missing required fields (username, email, or password)"}), 400
+
     new_user=User(
         username=data["username"],
         email=data["email"],
